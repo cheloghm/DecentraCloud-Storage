@@ -114,7 +114,7 @@ def register(email, password, storage, nodename):
 def install_k8s_components():
     """Install Kubernetes components."""
     try:
-        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../Scripts/install_k8s_components.sh')
+        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../Scripts/install_kubernetes.sh')
         subprocess.run(['bash', script_path], check=True)
         click.echo("Kubernetes components and container runtime installed.")
     except subprocess.CalledProcessError as e:
@@ -124,7 +124,7 @@ def install_k8s_components():
 @click.argument('action', type=click.Choice(['start', 'stop', 'scale', 'rbac', 'netpol'], case_sensitive=False))
 def manage(action):
     """Manage Kubernetes cluster operations."""
-    script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../Scripts/manage_k8s_cluster.sh')
+    script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../Scripts/manage_cluster.sh')
     try:
         subprocess.run(['bash', script_path, action], check=True)
         click.echo(f"Kubernetes cluster action '{action}' executed successfully.")
