@@ -3,7 +3,8 @@ import requests
 import json
 import os
 import sys
-import subprocess  # Import subprocess to run shell scripts
+import subprocess
+import geocoder  # Import geocoder for region detection
 from dotenv import load_dotenv
 
 # Add the parent directory to the system path to find the utils module
@@ -49,20 +50,23 @@ def register(email, password, storage, nodename):
         subprocess.run(['bash', script_path], check=True)
         click.echo("Kubernetes components and container runtime installed.")
         
-        # Initialize and configure the Kubernetes cluster
-        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../scripts/init_k8s_cluster.sh')
-        subprocess.run(['bash', script_path], check=True)
-        click.echo("Kubernetes cluster initialized and configured.")
     except Exception as e:
         click.echo(str(e))
         return
+
+    # Get region and country information
+    g = geocoder.ip('me')
+    region = g.continent
+    country = g.country
 
     # Register node
     node_data = {
         'email': email,
         'password': password,
         'storage': int(storage),
-        'nodeName': nodename
+        'nodeName': nodename,
+        'region': region,
+        'country': country
     }
     headers = {
         'Content-Type': 'application/json'
@@ -70,7 +74,7 @@ def register(email, password, storage, nodename):
     try:
         register_response = requests.post(f"{BASE_URL}/Nodes/register", json=node_data, headers=headers, verify=False)
 
-        if register_response.status_code == 200:
+        if register_response.status_code == 200):
             click.echo("Node registered successfully!")
             node_config = register_response.json()
             with open('node_config.json', 'w') as f:
@@ -103,6 +107,7 @@ def login(nodename, email, password):
 
     # Function to find the port where the node is running
     def find_node_port():
+        import psutil  # Import psutil within the function to avoid import errors if not used
         for conn in psutil.net_connections(kind='inet'):
             if conn.status == psutil.CONN_LISTEN and conn.laddr.port != 80:
                 p = psutil.Process(conn.pid)
