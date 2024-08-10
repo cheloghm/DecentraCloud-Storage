@@ -26,6 +26,8 @@ def check_k8s_components():
         subprocess.run(['kubelet', '--version'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         subprocess.run(['kubectl', 'version', '--client'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         click.echo("Kubernetes components are already installed.")
+    except FileNotFoundError:
+        return False
     except subprocess.CalledProcessError:
         return False
     return True
