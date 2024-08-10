@@ -17,6 +17,19 @@ load_dotenv()
 
 BASE_URL = os.getenv('BASE_URL')  # Use BASE_URL from the environment variable
 
+NODE_CONFIG_PATH = 'node_config.json'  # Path to store node configuration
+
+def check_k8s_components():
+    """Check if Kubernetes components are installed."""
+    try:
+        subprocess.run(['kubeadm', 'version'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(['kubelet', '--version'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(['kubectl', 'version', '--client'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        click.echo("Kubernetes components are already installed.")
+    except subprocess.CalledProcessError:
+        return False
+    return True
+
 @click.group()
 def cli():
     pass
@@ -30,6 +43,13 @@ def register(email, password, storage, nodename):
     """Register the storage node with the central server."""
     if BASE_URL is None:
         click.echo("BASE_URL environment variable is not set.")
+        return
+
+    if os.path.exists(NODE_CONFIG_PATH):
+        click.echo("Node already exists. Checking Kubernetes components.")
+        if not check_k8s_components():
+            click.echo("Kubernetes components are missing. Installing...")
+            install_k8s_components()
         return
 
     try:
@@ -60,14 +80,13 @@ def register(email, password, storage, nodename):
         if register_response.status_code == 200:
             click.echo("Node registered successfully!")
             node_config = register_response.json()
-            with open('node_config.json', 'w') as f:
+            with open(NODE_CONFIG_PATH, 'w') as f:
                 json.dump(node_config, f)
         else:
             click.echo(f"Failed to register node. Status code: {register_response.status_code}. Response: {register_response.text}")
             return
 
         # Proceed with storage check and Kubernetes setup only if registration is successful
-        # Check for at least 10GB of available storage
         free_storage = check_storage(10)
         click.echo(f"Free storage space: {free_storage}GB")
 
@@ -79,20 +98,31 @@ def register(email, password, storage, nodename):
         create_and_secure_storage(int(storage))
         click.echo(f"Allocated and secured {storage}GB of storage.")
         
-        # Run the Kubernetes and container runtime installation script
-        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../scripts/install_k8s_components.sh')
-        subprocess.run(['bash', script_path], check=True)
-        click.echo("Kubernetes components and container runtime installed.")
+        # Install Kubernetes components if not already installed
+        if not check_k8s_components():
+            click.echo("Installing Kubernetes components...")
+            install_k8s_components()
+        else:
+            click.echo("Kubernetes components are already installed.")
         
     except Exception as e:
         click.echo(str(e))
         return
 
+def install_k8s_components():
+    """Install Kubernetes components."""
+    try:
+        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../Scripts/install_k8s_components.sh')
+        subprocess.run(['bash', script_path], check=True)
+        click.echo("Kubernetes components and container runtime installed.")
+    except subprocess.CalledProcessError as e:
+        click.echo(f"Failed to install Kubernetes components: {e}")
+
 @cli.command()
 @click.argument('action', type=click.Choice(['start', 'stop', 'scale', 'rbac', 'netpol'], case_sensitive=False))
 def manage(action):
     """Manage Kubernetes cluster operations."""
-    script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../scripts/manage_k8s_cluster.sh')
+    script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../Scripts/manage_k8s_cluster.sh')
     try:
         subprocess.run(['bash', script_path, action], check=True)
         click.echo(f"Kubernetes cluster action '{action}' executed successfully.")
@@ -144,7 +174,7 @@ def login(nodename, email, password):
         if login_response.status_code == 200:
             click.echo("Node authenticated successfully!")
             node_config = login_response.json()
-            with open('node_config.json', 'w') as f:
+            with open(NODE_CONFIG_PATH, 'w') as f:
                 json.dump(node_config, f)
         else:
             click.echo(f"Failed to authenticate node. Status code: {login_response.status_code}. Response: {login_response.text}")
