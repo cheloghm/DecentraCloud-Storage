@@ -33,11 +33,40 @@ def register(email, password, storage, nodename):
         return
 
     try:
-        # Run setup script to install dependencies
-        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../scripts/setup.sh')
-        subprocess.run(['bash', script_path], check=True)
-        click.echo("Environment setup complete.")
+        # Get country and city information
+        g = geocoder.ip('me')
+        country = g.country
+        city = g.city
 
+        if not country or not city:
+            click.echo("Failed to retrieve location information. Ensure you're connected to the internet.")
+            return
+
+        # Register the node with the central server first
+        node_data = {
+            'email': email,
+            'password': password,
+            'storage': int(storage),
+            'nodeName': nodename,
+            'country': country,
+            'city': city
+        }
+        headers = {
+            'Content-Type': 'application/json'
+        }
+
+        register_response = requests.post(f"{BASE_URL}/Nodes/register", json=node_data, headers=headers, verify=False)
+
+        if register_response.status_code == 200:
+            click.echo("Node registered successfully!")
+            node_config = register_response.json()
+            with open('node_config.json', 'w') as f:
+                json.dump(node_config, f)
+        else:
+            click.echo(f"Failed to register node. Status code: {register_response.status_code}. Response: {register_response.text}")
+            return
+
+        # Proceed with storage check and Kubernetes setup only if registration is successful
         # Check for at least 10GB of available storage
         free_storage = check_storage(10)
         click.echo(f"Free storage space: {free_storage}GB")
@@ -50,39 +79,14 @@ def register(email, password, storage, nodename):
         create_and_secure_storage(int(storage))
         click.echo(f"Allocated and secured {storage}GB of storage.")
         
+        # Run the Kubernetes and container runtime installation script
+        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../scripts/install_k8s_components.sh')
+        subprocess.run(['bash', script_path], check=True)
+        click.echo("Kubernetes components and container runtime installed.")
+        
     except Exception as e:
         click.echo(str(e))
         return
-
-    # Get region and country information
-    g = geocoder.ip('me')
-    region = g.continent
-    country = g.country
-
-    # Register node
-    node_data = {
-        'email': email,
-        'password': password,
-        'storage': int(storage),
-        'nodeName': nodename,
-        'region': region,
-        'country': country
-    }
-    headers = {
-        'Content-Type': 'application/json'
-    }
-    try:
-        register_response = requests.post(f"{BASE_URL}/Nodes/register", json=node_data, headers=headers, verify=False)
-
-        if register_response.status_code == 200):
-            click.echo("Node registered successfully!")
-            node_config = register_response.json()
-            with open('node_config.json', 'w') as f:
-                json.dump(node_config, f)
-        else:
-            click.echo(f"Failed to register node. Status code: {register_response.status_code}. Response: {register_response.text}")
-    except Exception as e:
-        click.echo(f"An error occurred: {str(e)}")
 
 @cli.command()
 @click.argument('action', type=click.Choice(['start', 'stop', 'scale', 'rbac', 'netpol'], case_sensitive=False))
@@ -137,7 +141,7 @@ def login(nodename, email, password):
     try:
         login_response = requests.post(f"{BASE_URL}/Nodes/login", json=login_data, headers=headers, verify=False)
 
-        if login_response.status_code == 200):
+        if login_response.status_code == 200:
             click.echo("Node authenticated successfully!")
             node_config = login_response.json()
             with open('node_config.json', 'w') as f:
