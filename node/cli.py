@@ -33,6 +33,11 @@ def register(email, password, storage, nodename):
         return
 
     try:
+        # Run setup script to install dependencies
+        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../scripts/setup.sh')
+        subprocess.run(['bash', script_path], check=True)
+        click.echo("Environment setup complete.")
+
         # Check for at least 10GB of available storage
         free_storage = check_storage(10)
         click.echo(f"Free storage space: {free_storage}GB")
@@ -44,11 +49,6 @@ def register(email, password, storage, nodename):
         # Create and secure the specified storage space
         create_and_secure_storage(int(storage))
         click.echo(f"Allocated and secured {storage}GB of storage.")
-        
-        # Run the Kubernetes and container runtime installation script
-        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../scripts/install_k8s_components.sh')
-        subprocess.run(['bash', script_path], check=True)
-        click.echo("Kubernetes components and container runtime installed.")
         
     except Exception as e:
         click.echo(str(e))
