@@ -10,7 +10,7 @@ require('dotenv').config();
 
 // Create an axios instance with custom configuration
 const axiosInstance = axios.create({
-  httpsAgent: new (require('https')).Agent({ rejectUnauthorized: false }) // Allow self-signed certificates
+  httpsAgent: new (require('https')).Agent({ rejectUnauthorized: false })
 });
 
 // Middleware to check authentication
@@ -25,11 +25,14 @@ const authenticate = async (req, res, next) => {
   console.log(`Received token: ${token}`);
 
   try {
-    const response = await axiosInstance.post(`${process.env.BASE_URL}/token/verify`, { token });
+    const response = await axiosInstance.post(`${process.env.BASE_URL}/Token/verify`, { token });
+
     if (response.status === 200) {
-      req.user = response.data;
+      console.log('Token verification successful');
+      req.user = response.data; // You can store user information from the token here
       next();
     } else {
+      console.log('Token verification failed');
       res.sendStatus(403);
     }
   } catch (error) {

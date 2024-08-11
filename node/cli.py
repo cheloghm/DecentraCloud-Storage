@@ -4,7 +4,7 @@ import json
 import os
 import sys
 import subprocess
-import geocoder  # Import geocoder for region detection
+import geocoder
 from dotenv import load_dotenv
 
 # Add the parent directory to the system path to find the utils module
@@ -135,28 +135,15 @@ def manage(action):
 @click.option('--nodename', prompt='Node name', help='The name of the node.')
 @click.option('--email', prompt='Your email', help='The email associated with the node.')
 @click.option('--password', prompt='Your password', hide_input=True, help='The password to authenticate the node.')
-def login(nodename, email, password):
+@click.option('--url', prompt='Node URL', help='The public URL for the Storage Node.')
+def login(nodename, email, password, url):
     """Authenticate the storage node with the central server."""
     if BASE_URL is None:
         click.echo("BASE_URL environment variable is not set.")
         return
 
-    # Function to find the port where the node is running
-    def find_node_port():
-        import psutil  # Import psutil within the function to avoid import errors if not used
-        for conn in psutil.net_connections(kind='inet'):
-            if conn.status == psutil.CONN_LISTEN and conn.laddr.port != 80:
-                p = psutil.Process(conn.pid)
-                if "node" in p.name().lower() and conn.laddr.ip == '0.0.0.0':
-                    return conn.laddr.port
-        return None
-
-    port = find_node_port()
-    if port is None:
-        click.echo("Could not find the running port for the node.")
-        return
-
-    endpoint = f"https://localhost:{port}"
+    # Use the provided public URL
+    endpoint = url
     click.echo(f"Node endpoint: {endpoint}")
 
     # Authenticate node
