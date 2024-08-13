@@ -130,4 +130,17 @@ router.get('/file-size/:filename', authenticate, (req, res) => {
   res.status(200).send(fileSize.toString());
 });
 
+// Ping endpoint to check if the storage node is online and authenticated
+router.get('/ping', authenticate, (req, res) => {
+  try {
+    res.status(200).send('Storage node is online and authenticated');
+  } catch (error) {
+    console.error('Ping check failed:', error.message);
+    res.status(500).send('Storage node is online but encountered an error');
+  }
+});
+
+module.exports = router;
+
+
 module.exports = router;
