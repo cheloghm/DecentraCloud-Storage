@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 # Add the parent directory to the system path to find the utils module
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils.utils import check_storage, create_and_secure_storage
+from utils.utils import check_storage, create_and_secure_storage  # Import the storage check and allocation functions
 
 # Load environment variables from .env file
 load_dotenv()
@@ -19,11 +19,8 @@ BASE_URL = os.getenv('BASE_URL')  # Use BASE_URL from the environment variable
 
 NODE_CONFIG_PATH = 'node_config.json'  # Path to store node configuration
 
-@click.group()
-def cli():
-    pass
-
 def check_k8s_components():
+    """Check if Kubernetes components are installed."""
     try:
         subprocess.run(['kubeadm', 'version'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         subprocess.run(['kubelet', '--version'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -34,6 +31,42 @@ def check_k8s_components():
     except subprocess.CalledProcessError:
         return False
     return True
+
+@click.group()
+def cli():
+    pass
+
+def verify_node_with_server(email, nodename):
+    """Verify if the node name is available with the central server."""
+    node_verification_data = {
+        'email': email,
+        'nodeName': nodename
+    }
+
+    try:
+        verification_response = requests.post(f"{BASE_URL}/Nodes/verify", json=node_verification_data, verify=False)
+        if verification_response.status_code == 400:
+            click.echo(f"Node already exists. Please authenticate or choose a different name.")
+            return False
+        elif verification_response.status_code != 200:
+            click.echo(f"Failed to verify node. Status code: {verification_response.status_code}. Response: {verification_response.text}")
+            return False
+        return True
+    except Exception as e:
+        click.echo(f"An error occurred during node verification: {str(e)}")
+        return False
+
+def load_node_config():
+    """Load the node configuration if it exists and is valid."""
+    if os.path.exists(NODE_CONFIG_PATH):
+        try:
+            with open(NODE_CONFIG_PATH, 'r') as f:
+                node_config = json.load(f)
+                return node_config if node_config else None
+        except json.JSONDecodeError:
+            click.echo("Node configuration file is empty or corrupted.")
+            return None
+    return None
 
 @cli.command()
 @click.option('--email', prompt='Your email', help='The email to register the node.')
@@ -46,38 +79,23 @@ def register(email, password, storage, nodename):
         click.echo("BASE_URL environment variable is not set.")
         return
 
-    if os.path.exists(NODE_CONFIG_PATH):
-        click.echo("Node already exists locally. Verifying with central server...")
-        with open(NODE_CONFIG_PATH, 'r') as f:
-            node_config = json.load(f)
+    node_config = load_node_config()
 
-        try:
-            # Check if the node exists on the central server
-            response = requests.post(f"{BASE_URL}/Nodes/verify", json=node_config, headers={'Content-Type': 'application/json'}, verify=False)
+    if node_config:
+        click.echo("Node already exists locally. Please authenticate or register a new node.")
+        click.echo(f"If you forgot your password, visit www.decentracloud.com/forgot-password to change it.")
+        click.echo(f"Then authenticate the node using: python3 node/cli.py login --nodename {nodename} --email {email} --password [new password] --url [public url]")
+        return
 
-            if response.status_code == 200:
-                click.echo("Node verified on central server. No need to re-register.")
-                return
-
-            elif response.status_code == 404:
-                click.echo("Node not found on central server. Re-registering...")
-                register_node(email, password, storage, nodename)
-                return
-
-            else:
-                click.echo(f"Unexpected response from server: {response.status_code}. Response: {response.text}")
-                return
-
-        except Exception as e:
-            click.echo(f"Failed to verify node with central server: {str(e)}")
+    # Verify with the central server if the node name is available
+    if not verify_node_with_server(email, nodename):
+        # Prompt the user for a new node name
+        new_nodename = click.prompt("Node name already exists. Please enter a different node name", type=str)
+        if not verify_node_with_server(email, new_nodename):
+            click.echo("Node name verification failed. Aborting registration.")
             return
+        nodename = new_nodename
 
-    else:
-        # If node_config.json doesn't exist, register the node
-        register_node(email, password, storage, nodename)
-
-def register_node(email, password, storage, nodename):
-    """Function to register the node with the central server."""
     try:
         # Get country and city information
         g = geocoder.ip('me')
@@ -88,7 +106,7 @@ def register_node(email, password, storage, nodename):
             click.echo("Failed to retrieve location information. Ensure you're connected to the internet.")
             return
 
-        # Register the node with the central server first
+        # Register the node with the central server
         node_data = {
             'email': email,
             'password': password,
@@ -108,8 +126,6 @@ def register_node(email, password, storage, nodename):
             node_config = register_response.json()
             with open(NODE_CONFIG_PATH, 'w') as f:
                 json.dump(node_config, f)
-        elif register_response.status_code == 409:
-            click.echo("Node already exists on the central server. Please visit www.decentracloud.com/forgot-password to change your password and then authenticate the node using the login command.")
         else:
             click.echo(f"Failed to register node. Status code: {register_response.status_code}. Response: {register_response.text}")
             return
@@ -122,9 +138,11 @@ def register_node(email, password, storage, nodename):
             click.echo("Storage allocation must be at least 5GB.")
             return
         
+        # Create and secure the specified storage space
         create_and_secure_storage(int(storage))
         click.echo(f"Allocated and secured {storage}GB of storage.")
         
+        # Install Kubernetes components if not already installed
         if not check_k8s_components():
             click.echo("Installing Kubernetes components...")
             install_k8s_components()
@@ -166,9 +184,11 @@ def login(nodename, email, password, url):
         click.echo("BASE_URL environment variable is not set.")
         return
 
+    # Use the provided public URL
     endpoint = url
     click.echo(f"Node endpoint: {endpoint}")
 
+    # Authenticate node
     login_data = {
         'nodeName': nodename,
         'email': email,
@@ -178,7 +198,7 @@ def login(nodename, email, password, url):
     headers = {
         'Content-Type': 'application/json'
     }
-    click.echo(f"Sending login data: {json.dumps(login_data)}")
+    click.echo(f"Sending login data: {json.dumps(login_data)}")  # Debugging line
     try:
         login_response = requests.post(f"{BASE_URL}/Nodes/login", json=login_data, headers=headers, verify=False)
 
