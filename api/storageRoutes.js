@@ -13,33 +13,127 @@ const axiosInstance = axios.create({
   httpsAgent: new (require('https')).Agent({ rejectUnauthorized: false })
 });
 
-// Middleware to check authentication
-const authenticate = async (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  if (!authHeader) {
-    console.log('Authorization header missing');
-    return res.sendStatus(401);
-  }
+let failedAuthAttempts = 0; // Variable to track failed authentication attempts
 
-  const token = authHeader.split(' ')[1];
-  console.log(`Received token: ${token}`);
-
-  try {
-    const response = await axiosInstance.post(`${process.env.BASE_URL}/Token/verify`, { token });
-
-    if (response.status === 200) {
-      console.log('Token verification successful');
-      req.user = response.data; // You can store user information from the token here
-      next();
-    } else {
-      console.log('Token verification failed');
-      res.sendStatus(403);
-    }
-  } catch (error) {
-    console.error('Token verification failed:', error.message);
-    res.sendStatus(403);
-  }
+const incrementFailedAuthAttempts = () => {
+    failedAuthAttempts += 1;
 };
+
+const getFailedAuthAttempts = () => {
+    return failedAuthAttempts;
+};
+
+// Authentication Middleware
+const authenticate = async (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    if (!authHeader) {
+        console.log('Authorization header missing');
+        incrementFailedAuthAttempts();
+        return res.sendStatus(401);
+    }
+
+    const token = authHeader.split(' ')[1];
+    console.log(`Received token: ${token}`);
+
+    try {
+        const response = await axiosInstance.post(`${process.env.BASE_URL}/Token/verify`, { token });
+
+        if (response.status === 200) {
+            console.log('Token verification successful');
+            req.user = response.data;
+            next();
+        } else {
+            console.log('Token verification failed');
+            incrementFailedAuthAttempts();
+            res.sendStatus(403);
+        }
+    } catch (error) {
+        console.error('Token verification failed:', error.message);
+        incrementFailedAuthAttempts();
+        res.sendStatus(403);
+    }
+};
+
+// Authentication Endpoint
+router.post('/authenticate', async (req, res) => {
+    const { token } = req.body;
+    try {
+        // Authentication logic...
+        const response = await axiosInstance.post(`${process.env.BASE_URL}/Token/verify`, { token });
+
+        if (response.status === 200) {
+            res.status(200).send('Authenticated');
+        } else {
+            incrementFailedAuthAttempts();
+            res.status(401).send('Authentication failed');
+        }
+    } catch (error) {
+        console.error('Authentication error:', error.message);
+        incrementFailedAuthAttempts();
+        res.status(500).send('Authentication error');
+    }
+});
+
+// Get Failed Authentication Attempts
+router.get('/status/auth-attempts', authenticate, async (req, res) => {
+    try {
+        const failedAttempts = getFailedAuthAttempts();
+        res.status(200).json({ failedAttempts });
+    } catch (error) {
+        console.error('Failed to get auth attempts:', error.message);
+        res.status(500).send('Failed to get auth attempts');
+    }
+});
+
+const os = require('os');
+
+// Helper functions to get CPU and memory usage
+const getCpuUsage = () => {
+    return new Promise((resolve, reject) => {
+        const startTime = process.hrtime();
+        const startUsage = process.cpuUsage();
+
+        setTimeout(() => {
+            const elapTime = process.hrtime(startTime);
+            const elapUsage = process.cpuUsage(startUsage);
+
+            const elapTimeMS = elapTime[0] * 1000 + elapTime[1] / 1000000;
+            const elapUserMS = elapUsage.user / 1000;
+            const elapSystMS = elapUsage.system / 1000;
+
+            const cpuPercent = (100 * (elapUserMS + elapSystMS) / elapTimeMS).toFixed(2);
+            resolve(cpuPercent);
+        }, 100);
+    });
+};
+
+const getMemoryUsage = () => {
+    const totalMemory = os.totalmem();
+    const freeMemory = os.freemem();
+    const usedMemory = totalMemory - freeMemory;
+
+    return {
+        totalMemory: (totalMemory / 1024 / 1024).toFixed(2),  // in MB
+        usedMemory: (usedMemory / 1024 / 1024).toFixed(2),    // in MB
+        freeMemory: (freeMemory / 1024 / 1024).toFixed(2)     // in MB
+    };
+};
+
+// Resource Monitoring Endpoint
+router.get('/status/resource-usage', authenticate, async (req, res) => {
+    try {
+        const cpuUsage = await getCpuUsage();
+        const memoryUsage = getMemoryUsage();
+
+        res.status(200).json({
+            cpuUsage: `${cpuUsage}%`,
+            memoryUsage
+        });
+    } catch (error) {
+        console.error('Failed to get resource usage:', error.message);
+        res.status(500).send('Failed to get resource usage');
+    }
+});
 
 // Define routes
 router.post('/upload', authenticate, upload.single('file'), async (req, res) => {
